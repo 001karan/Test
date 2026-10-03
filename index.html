@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<title>Autokart Automotives | Showroom Display</title>
+<style>
+:root{--bg:#050505;--panel:#101010;--text:#fff;--muted:#b8b8b8;--accent:#e31b23}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+body{display:flex}
+#app{width:100vw;height:100vh;position:relative;background:#050505}
+#photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .55s ease;filter:saturate(1.03)}
+#shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.86) 0%,rgba(0,0,0,.58) 38%,rgba(0,0,0,.12) 75%),linear-gradient(0deg,rgba(0,0,0,.72),transparent 42%)}
+#content{position:absolute;inset:0;padding:4.5vh 5vw;display:flex;flex-direction:column;justify-content:space-between}
+#top{display:flex;justify-content:space-between;align-items:flex-start}
+#brand{font-weight:900;font-size:clamp(26px,3.1vw,60px);letter-spacing:.02em}
+#tag{font-size:clamp(13px,1.25vw,25px);color:#ddd;margin-top:.35em}
+#status{font-size:clamp(11px,1vw,18px);color:#aaa;text-align:right}
+#info{max-width:62vw;padding-bottom:3vh}
+#title{font-size:clamp(34px,4.7vw,90px);line-height:.98;font-weight:900;margin:0 0 1.4vh;text-shadow:0 3px 18px #000}
+#subtitle{font-size:clamp(18px,2vw,38px);font-weight:700;margin-bottom:1.7vh}
+#details{display:flex;gap:1.1vw;flex-wrap:wrap;margin-bottom:2.2vh}
+.pill{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);padding:.65em .9em;border-radius:999px;font-size:clamp(13px,1.15vw,23px);backdrop-filter:blur(5px)}
+#price{font-size:clamp(30px,3vw,58px);font-weight:900;margin-bottom:.7vh}
+#tax{font-size:clamp(12px,1vw,19px);color:#ccc}
+#bottom{display:flex;justify-content:space-between;align-items:end;gap:20px}
+#contact{font-size:clamp(14px,1.15vw,24px);line-height:1.45}
+#counter{font-size:clamp(13px,1vw,20px);color:#ddd}
+#bar{position:absolute;left:0;bottom:0;height:6px;background:var(--accent);width:0;transition:width .1s linear}
+#error{position:absolute;inset:auto 3vw 3vw 3vw;background:#7f1118;color:#fff;padding:18px 22px;border-radius:12px;display:none;font-size:18px}
+#loading{position:absolute;inset:0;display:grid;place-items:center;background:#050505;z-index:5;font-size:clamp(18px,2vw,36px)}
+.fade{animation:fade .55s ease}@keyframes fade{from{opacity:.1;transform:scale(1.01)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="loading">Loading Autokart inventory…</div>
+  <img id="photo" alt="">
+  <div id="shade"></div>
+  <div id="content">
+    <div id="top">
+      <div><div id="brand">AUTOKART AUTOMOTIVES</div><div id="tag">Quality you can count on. Confidence in every drive.</div></div>
+      <div id="status">LIVE INVENTORY<br><span id="updated">Updating…</span></div>
+    </div>
+    <div id="info">
+      <h1 id="title">Autokart Automotives</h1>
+      <div id="subtitle"></div>
+      <div id="details"></div>
+      <div id="price"></div>
+      <div id="tax">Prices shown are subject to applicable taxes and licensing.</div>
+    </div>
+    <div id="bottom">
+      <div id="contact"><b>7454 Airport Rd, Mississauga, ON L4T 2H5</b><br>647-854-0336 · autokart.ca</div>
+      <div id="counter"></div>
+    </div>
+  </div>
+  <div id="bar"></div>
+  <div id="error"></div>
+</div>
+
+<script>
+const FEED_FILE = "data.csv";
+const VEHICLE_SECONDS = 10;
+const REFRESH_MINUTES = 15;
+
+const $ = id => document.getElementById(id);
+let vehicles=[], vehicleIndex=0, imageIndex=0, imageTimer=null, slideTimer=null, progressTimer=null;
+
+function clean(v){return (v??"").toString().trim().replace(/^"(.*)"$/,"$1").replace(/""/g,'"')}
+function parseCSV(text){
+  const rows=[]; let row=[], cell="", q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i], n=text[i+1];
+    if(c==='"' && q && n==='"'){cell+='"';i++;continue}
+    if(c==='"'){q=!q;continue}
+    if(c===',' && !q){row.push(cell);cell="";continue}
+    if((c==='\n'||c==='\r')&&!q){
+      if(c==='\r'&&n==='\n')i++;
+      row.push(cell);cell="";
+      if(row.some(x=>x.trim()!=="")) rows.push(row);
+      row=[];continue;
+    }
+    cell+=c;
+  }
+  if(cell!==""||row.length){row.push(cell);if(row.some(x=>x.trim()!==""))rows.push(row)}
+  if(rows.length<2)return [];
+  const headers=rows[0].map(h=>clean(h).toLowerCase().replace(/[^a-z0-9]+/g,"_"));
+  return rows.slice(1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,clean(r[i]||"")]))));
+}
+function val(o, names){
+  for(const n of names){const k=n.toLowerCase().replace(/[^a-z0-9]+/g,"_");if(o[k])return o[k]}
+  return "";
+}
+function money(v){
+  const n=parseFloat(String(v).replace(/[^0-9.-]/g,""));
+  return Number.isFinite(n) ? new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD",maximumFractionDigits:0}).format(n) : (v||"");
+}
+function km(v){
+  if(!v)return "";
+  const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+  return Number.isFinite(n) ? new Intl.NumberFormat("en-CA").format(n)+" KM" : v;
+}
+function imageList(v){
+  const raw = [
+    val(v,["image_link","image_url","image","main_image"]),
+    val(v,["additional_image_link","additional_images","image_links","images"])
+  ].filter(Boolean).join(",");
+  return raw.split(/[\n,|;]/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x));
+}
+function normalize(o){
+  const year=val(o,["year","vehicle_year"]);
+  const make=val(o,["make","brand"]);
+  const model=val(o,["model"]);
+  const title=val(o,["title","name","vehicle_title"]) || [year,make,model].filter(Boolean).join(" ");
+  return {
+    title, year, make, model,
+    trim:val(o,["trim","version","variant"]),
+    mileage:km(val(o,["mileage","odometer","miles"])),
+    price:money(val(o,["price","sale_price","retail_price","current_price"])),
+    body:val(o,["body_style","body_type"]),
+    transmission:val(o,["transmission"]),
+    fuel:val(o,["fuel_type","fuel"]),
+    stock:val(o,["stock_number","stock","vehicle_id"]),
+    link:val(o,["link","vehicle_url","url"]),
+    images:imageList(o)
+  };
+}
+async function load(){
+  try{
+    const r=await fetch(FEED_FILE+"?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok)throw new Error("Feed returned HTTP "+r.status);
+    const text=await r.text();
+    const parsed=parseCSV(text).map(normalize).filter(v=>v.title && (v.images.length||v.link));
+    if(!parsed.length)throw new Error("No vehicles with usable data/images were found in the feed.");
+    vehicles=parsed;
+    $("loading").style.display="none";
+    $("error").style.display="none";
+    vehicleIndex=Math.min(vehicleIndex,vehicles.length-1);
+    showVehicle(vehicleIndex);
+    $("updated").textContent="Updated "+new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  }catch(e){
+    console.error(e);
+    $("loading").style.display="none";
+    $("error").style.display="block";
+    $("error").textContent="Inventory feed unavailable. Retrying automatically…";
+  }
+}
+function showVehicle(i){
+  if(!vehicles.length)return;
+  clearTimeout(slideTimer); clearInterval(progressTimer); clearInterval(imageTimer);
+  const v=vehicles[i]; imageIndex=0;
+  $("title").textContent=v.title;
+  $("subtitle").textContent=[v.trim].filter(Boolean).join(" ");
+  $("details").innerHTML="";
+  [v.year,v.mileage,v.body,v.transmission,v.fuel,v.stock?("Stock #"+v.stock):""].filter(Boolean).forEach(x=>{
+    const d=document.createElement("div");d.className="pill";d.textContent=x;$("details").appendChild(d);
+  });
+  $("price").textContent=v.price;
+  $("counter").textContent=`${i+1} / ${vehicles.length}`;
+  showImage(v);
+  imageTimer=setInterval(()=>{imageIndex=(imageIndex+1)%Math.max(v.images.length,1);showImage(v)},3500);
+  const start=performance.now();
+  progressTimer=setInterval(()=>{
+    const pct=Math.min(100,(performance.now()-start)/(VEHICLE_SECONDS*1000)*100);
+    $("bar").style.width=pct+"%";
+  },100);
+  slideTimer=setTimeout(()=>{vehicleIndex=(vehicleIndex+1)%vehicles.length;showVehicle(vehicleIndex)},VEHICLE_SECONDS*1000);
+}
+function showImage(v){
+  if(!v.images.length){
+    $("photo").style.opacity=0;
+    return;
+  }
+  const src=v.images[imageIndex%v.images.length];
+  $("photo").classList.remove("fade"); void $("photo").offsetWidth; $("photo").classList.add("fade");
+  $("photo").src=src; $("photo").onload=()=>{$("photo").style.opacity=1};
+}
+load();
+setInterval(load,REFRESH_MINUTES*60*1000);
+document.addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"){vehicleIndex=(vehicleIndex+1)%vehicles.length;showVehicle(vehicleIndex)}
+  if(e.key==="ArrowLeft"){vehicleIndex=(vehicleIndex-1+vehicles.length)%vehicles.length;showVehicle(vehicleIndex)}
+});
+</script>
+</body>
+</html>
